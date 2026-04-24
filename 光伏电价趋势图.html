@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>光伏项目电价趋势分析</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#10b981',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                        info: '#6366f1',
+                        light: '#f3f4f6',
+                        dark: '#1f2937'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .transition-all {
+                transition-property: all;
+                transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+                transition-duration: 150ms;
+            }
+            .shadow-hover {
+                @apply transition-all hover:shadow-lg hover:-translate-y-1;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-md font-medium transition-all focus:outline-none focus:ring-2 focus:ring-offset-2;
+            }
+            .btn-primary {
+                @apply bg-primary text-white hover:bg-blue-700 focus:ring-blue-500;
+            }
+            .btn-secondary {
+                @apply bg-secondary text-white hover:bg-green-700 focus:ring-green-500;
+            }
+            .btn-danger {
+                @apply bg-danger text-white hover:bg-red-700 focus:ring-red-500;
+            }
+            .btn-outline {
+                @apply border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-500;
+            }
+            .input-field {
+                @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent;
+            }
+            .table-header {
+                @apply px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+            }
+            .table-cell {
+                @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900;
+            }
+            .card {
+                @apply bg-white rounded-lg shadow-md overflow-hidden;
+            }
+            .card-header {
+                @apply px-6 py-4 border-b border-gray-200;
+            }
+            .card-body {
+                @apply p-6;
+            }
+            .collapse-transition {
+                transition: max-height 0.3s ease-out, opacity 0.3s ease-out;
+                max-height: 2000px;
+                overflow: hidden;
+            }
+            .collapse-hidden {
+                max-height: 0 !important;
+                opacity: 0;
+            }
+            /* 多选下拉框样式 */
+            .multiselect-container {
+                position: relative;
+            }
+            .multiselect-dropdown {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: white;
+                border: 1px solid #d1d5db;
+                border-radius: 0.375rem;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                z-index: 50;
+                max-height: 300px;
+                overflow-y: auto;
+                display: none;
+            }
+            .multiselect-dropdown.show {
+                display: block;
+            }
+            .multiselect-option {
+                padding: 0.5rem 1rem;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+            }
+            .multiselect-option:hover {
+                background-color: #f3f4f6;
+            }
+            .multiselect-option input {
+                margin-right: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- 顶部标题和筛选器 -->
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-4 md:mb-0">光伏项目电价趋势分析</h1>
+            <div class="flex items-center space-x-3 flex-wrap justify-center">
+                <!-- 省份多选组件 -->
+                <div class="relative">
+                    <div class="multiselect-container">
+                        <button id="provinceSelectorBtn" class="input-field pr-8 text-left flex items-center justify-between">
+                            <span id="selectedProvincesText">选择省份</span>
+                            <i class="fa fa-chevron-down ml-2"></i>
+                        </button>
+                        <div id="provinceDropdown" class="multiselect-dropdown">
+                            <div class="multiselect-option" id="selectAllOption">
+                                <input type="checkbox" id="selectAllCheckbox">
+                                <label for="selectAllCheckbox" class="cursor-pointer">全选/取消全选</label>
+                            </div>
+                            <div id="provinceOptions"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="relative">
+                    <select id="priceTypeSelector" class="input-field pr-8 appearance-none">
+                        <option value="online">上网电价</option>
+                        <option value="settle">客户结算电价</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                        <i class="fa fa-chevron-down"></i>
+                    </div>
+                </div>
+                <button id="addProvinceBtn" class="btn btn-primary">
+                    <i class="fa fa-plus mr-2"></i>添加省份
+                </button>
+                <button id="deleteProvinceBtn" class="btn btn-danger">
+                    <i class="fa fa-trash mr-2"></i>删除省份
+                </button>
+            </div>
+        </div>
+
+        <!-- 主要内容区域 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 左侧数据编辑区 -->
+            <div class="lg:col-span-1">
+                <div class="card shadow-hover">
+                    <div class="card-header bg-gray-50 flex justify-between items-center">
+                        <h2 class="text-lg font-semibold text-gray-800">数据编辑</h2>
+                        <div class="flex space-x-2">
+                            <button id="importDataBtn" class="btn btn-outline text-sm py-1">
+                                <i class="fa fa-upload mr-1"></i>导入
+                            </button>
+                            <button id="exportDataBtn" class="btn btn-outline text-sm py-1">
+                                <i class="fa fa-download mr-1"></i>导出
+                            </button>
+                            <button id="shareDataBtn" class="btn btn-primary text-sm py-1">
+                                <i class="fa fa-share-alt mr-1"></i>分享
+                            </button>
+                            <button id="autoFillBtn" class="btn btn-secondary text-sm py-1">
+                                <i class="fa fa-magic mr-1"></i>填充
+                            </button>
+                            <button id="toggleCollapseBtn" class="btn btn-outline text-sm py-1" title="展开/隐藏数据区">
+                                <i class="fa fa-chevron-up"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="collapseContent" class="collapse-transition">
+                        <div class="card-body p-0">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50">
+                                        <tr>
+                                            <th scope="col" class="table-header">年份</th>
+                                            <th scope="col" class="table-header">月份</th>
+                                            <th scope="col" class="table-header">上网电价(元/kWh)</th>
+                                            <th scope="col" class="table-header">客户结算电价(元/kWh)</th>
+                                            <th scope="col" class="table-header">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dataTable" class="bg-white divide-y divide-gray-200">
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="p-4 border-t border-gray-200">
+                                <button id="addDataBtn" class="btn btn-primary w-full">
+                                    <i class="fa fa-plus mr-2"></i>添加数据行
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧图表展示区 -->
+            <div class="lg:col-span-2">
+                <div class="card shadow-hover mb-6">
+                    <div class="card-header bg-gray-50">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-lg font-semibold text-gray-800">电价趋势图</h2>
+                            <div class="flex space-x-2">
+                                <select id="trendTimeRange" class="input-field text-sm py-1">
+                                    <option value="all">全部时间</option>
+                                    <option value="year">按年</option>
+                                    <option value="quarter">按季度</option>
+                                    <option value="month">按月</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-4 flex items-center space-x-4">
+                            <label class="text-sm font-medium text-gray-700">Y轴范围:</label>
+                            <div class="flex items-center space-x-2">
+                                <input type="number" id="yMinInput" class="input-field text-sm py-1 w-20" placeholder="最小值" step="0.0001">
+                                <span>至</span>
+                                <input type="number" id="yMaxInput" class="input-field text-sm py-1 w-20" placeholder="最大值" step="0.0001">
+                                <button id="applyYAxisBtn" class="btn btn-primary text-sm py-1">应用</button>
+                                <button id="resetYAxisBtn" class="btn btn-outline text-sm py-1">重置</button>
+                            </div>
+                        </div>
+                        <div class="h-80">
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card shadow-hover">
+                    <div class="card-header bg-gray-50">
+                        <div class="flex justify-between items-center">
+                            <h2 class="text-lg font-semibold text-gray-800">同比分析</h2>
+                            <div class="flex space-x-2">
+                                <select id="monthSelector" class="input-field text-sm py-1">
+                                    <option value="all">所有月份</option>
+                                    <option value="1">1月</option>
+                                    <option value="2">2月</option>
+                                    <option value="3">3月</option>
+                                    <option value="4">4月</option>
+                                    <option value="5">5月</option>
+                                    <option value="6">6月</option>
+                                    <option value="7">7月</option>
+                                    <option value="8">8月</option>
+                                    <option value="9">9月</option>
+                                    <option value="10">10月</option>
+                                    <option value="11">11月</option>
+                                    <option value="12">12月</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="h-80">
+                            <canvas id="comparisonChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card shadow-hover mt-6">
+                    <div class="card-header bg-gray-50">
+                        <h2 class="text-lg font-semibold text-gray-800">同比变化率数据表格</h2>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="overflow-x-auto">
+                            <table id="changeRateTable" class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th scope="col" class="table-header">省份</th>
+                                        <th scope="col" class="table-header">年份</th>
+                                        <th scope="col" class="table-header">月份</th>
+                                        <th scope="col" class="table-header">电价类型</th>
+                                        <th scope="col" class="table-header">当前电价</th>
+                                        <th scope="col" class="table-header">上年电价</th>
+                                        <th scope="col" class="table-header">同比变化率(%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="changeRateTableBody" class="bg-white divide-y divide-gray-200">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 所有模态框 -->
+    <div id="addProvinceModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">添加省份</h3>
+                <button id="closeProvinceModal" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="mb-4">
+                <label for="newProvinceName" class="block text-sm font-medium text-gray-700 mb-1">省份名称</label>
+                <input type="text" id="newProvinceName" class="input-field" placeholder="例如：北京">
+            </div>
+            <div class="flex justify-end">
+                <button id="cancelAddProvince" class="btn btn-outline mr-2">取消</button>
+                <button id="confirmAddProvince" class="btn btn-primary">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="addDataModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">添加数据行</h3>
+                <button id="closeDataModal" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="newDataYear" class="block text-sm font-medium text-gray-700 mb-1">年份</label>
+                    <input type="number" id="newDataYear" class="input-field" value="2023" min="2000" max="2100">
+                </div>
+                <div>
+                    <label for="newDataMonth" class="block text-sm font-medium text-gray-700 mb-1">月份</label>
+                    <select id="newDataMonth" class="input-field">
+                        <option value="1">1月</option>
+                        <option value="2">2月</option>
+                        <option value="3">3月</option>
+                        <option value="4">4月</option>
+                        <option value="5">5月</option>
+                        <option value="6">6月</option>
+                        <option value="7">7月</option>
+                        <option value="8">8月</option>
+                        <option value="9">9月</option>
+                        <option value="10">10月</option>
+                        <option value="11">11月</option>
+                        <option value="12">12月</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="newOnlinePrice" class="block text-sm font-medium text-gray-700 mb-1">上网电价 (元/kWh)</label>
+                    <input type="number" id="newOnlinePrice" class="input-field" step="0.0001" placeholder="例如：0.4200">
+                </div>
+                <div>
+                    <label for="newSettlePrice" class="block text-sm font-medium text-gray-700 mb-1">客户结算电价 (元/kWh)</label>
+                    <input type="number" id="newSettlePrice" class="input-field" step="0.0001" placeholder="例如：0.5500">
+                </div>
+            </div>
+            <div class="flex justify-end mt-6">
+                <button id="cancelAddData" class="btn btn-outline mr-2">取消</button>
+                <button id="confirmAddData" class="btn btn-primary">添加</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="importModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">导入数据</h3>
+                <button id="closeImportModal" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Excel文件上传</label>
+                <div class="flex items-center justify-center w-full">
+                    <label for="excelFile" class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <i class="fa fa-file-excel-o text-3xl text-gray-400 mb-2"></i>
+                            <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">点击上传</span> 或拖放文件</p>
+                            <p class="text-xs text-gray-500">模板格式：包含「上网电价」「客户结算电价」两个Sheet，A列为月份，第一行为省份</p>
+                        </div>
+                        <input id="excelFile" type="file" class="hidden" accept=".xlsx,.xls"/>
+                    </label>
+                </div>
+                <div id="fileInfo" class="mt-2 text-sm text-gray-600"></div>
+            </div>
+            <div class="mb-4">
+                <label for="importTextArea" class="block text-sm font-medium text-gray-700 mb-1">CSV数据</label>
+                <textarea id="importTextArea" class="input-field h-32" placeholder="省份,年份,月份,上网电价,客户结算电价&#10;北京,2023,1,0.4200,0.5500&#10;上海,2023,2,0.4300,0.5600"></textarea>
+            </div>
+            <div class="flex justify-end">
+                <button id="cancelImport" class="btn btn-outline mr-2">取消</button>
+                <button id="confirmImport" class="btn btn-primary">导入</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="autoFillModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">智能填充</h3>
+                <button id="closeAutoFillModal" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label for="fillStartYear" class="block text-sm font-medium text-gray-700 mb-1">起始年份</label>
+                    <input type="number" id="fillStartYear" class="input-field" value="2023" min="2000" max="2100">
+                </div>
+                <div>
+                    <label for="fillEndYear" class="block text-sm font-medium text-gray-700 mb-1">结束年份</label>
+                    <input type="number" id="fillEndYear" class="input-field" value="2025" min="2000" max="2100">
+                </div>
+                <div>
+                    <label for="fillGrowthRate" class="block text-sm font-medium text-gray-700 mb-1">年增长率 (%)</label>
+                    <input type="number" id="fillGrowthRate" class="input-field" value="-2" step="0.1" min="-100" max="100">
+                </div>
+            </div>
+            <div class="flex justify-end mt-6">
+                <button id="cancelAutoFill" class="btn btn-outline mr-2">取消</button>
+                <button id="confirmAutoFill" class="btn btn-primary">填充</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="shareModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">分享数据</h3>
+                <button id="closeShareModal" class="text-gray-400 hover:text-gray-600">
+                    <i class="fa fa-times"></i>
+                </button>
+            </div>
+            <div class="mb-4">
+                <p class="text-sm text-gray-600 mb-2">复制以下链接分享数据：</p>
+                <div class="flex">
+                    <input type="text" id="shareLink" class="input-field flex-1" readonly>
+                    <button id="copyLinkBtn" class="btn btn-primary ml-2">
+                        <i class="fa fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="flex justify-end mt-6">
+                <button id="closeShareBtn" class="btn btn-outline">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let electricityPriceData = {
+            provinces: [],
+            data: {}
+        };
+
+        let selectedProvinces = []; // 存储多选的省份
+        let currentPriceType = 'online';
+        let trendChart = null;
+        let comparisonChart = null;
+        let importedExcelData = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initProvinceSelector();
+            updateDataTable();
+            initCharts();
+            updateChangeRateTable();
+            bindEvents();
+            loadDataFromLocalStorage();
+            bindExcelUploadEvent();
+            bindMultiselectEvents(); // 绑定多选事件
+        });
+
+        // ========== 多选省份相关函数 ==========
+        function bindMultiselectEvents() {
+            const selectorBtn = document.getElementById('provinceSelectorBtn');
+            const dropdown = document.getElementById('provinceDropdown');
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+
+            // 点击按钮展开/收起下拉框
+            selectorBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                dropdown.classList.toggle('show');
+            });
+
+            // 点击外部关闭下拉框
+            document.addEventListener('click', function(e) {
+                if (!dropdown.contains(e.target) && !selectorBtn.contains(e.target)) {
+                    dropdown.classList.remove('show');
+                }
+            });
+
+            // 全选/取消全选
+            selectAllCheckbox.addEventListener('change', function() {
+                const isChecked = this.checked;
+                const checkboxes = document.querySelectorAll('#provinceOptions input[type="checkbox"]');
+                checkboxes.forEach(cb => {
+                    cb.checked = isChecked;
+                });
+                updateSelectedProvinces();
+                updateAll();
+            });
+        }
+
+        // 初始化省份选择器（多选版）
+        function initProvinceSelector() {
+            const optionsContainer = document.getElementById('provinceOptions');
+            optionsContainer.innerHTML = '';
+            
+            // 默认选中所有省份
+            selectedProvinces = [...electricityPriceData.provinces];
+            
+            electricityPriceData.provinces.forEach(province => {
+                const optionDiv = document.createElement('div');
+                optionDiv.className = 'multiselect-option';
+                optionDiv.innerHTML = `
+                    <input type="checkbox" id="province_${province}" value="${province}" checked>
+                    <label for="province_${province}" class="cursor-pointer">${province}</label>
+                `;
+                
+                // 绑定复选框事件
+                const checkbox = optionDiv.querySelector('input');
+                checkbox.addEventListener('change', function() {
+                    updateSelectedProvinces();
+                    updateAll();
+                });
+                
+                optionsContainer.appendChild(optionDiv);
+            });
+
+            updateSelectedProvincesText();
+            updateSelectAllState();
+        }
+
+        // 更新选中的省份列表
+        function updateSelectedProvinces() {
+            const checkboxes = document.querySelectorAll('#provinceOptions input[type="checkbox"]');
+            selectedProvinces = [];
+            checkboxes.forEach(cb => {
+                if (cb.checked) {
+                    selectedProvinces.push(cb.value);
+                }
+            });
+            updateSelectedProvincesText();
+            updateSelectAllState();
+        }
+
+        // 更新选择器按钮显示文本
+        function updateSelectedProvincesText() {
+            const textSpan = document.getElementById('selectedProvincesText');
+            if (selectedProvinces.length === 0) {
+                textSpan.textContent = '请选择省份';
+            } else if (selectedProvinces.length === electricityPriceData.provinces.length) {
+                textSpan.textContent = '所有省份';
+            } else if (selectedProvinces.length <= 3) {
+                textSpan.textContent = selectedProvinces.join('、');
+            } else {
+                textSpan.textContent = `${selectedProvinces[0]}、${selectedProvinces[1]} 等${selectedProvinces.length}个省份`;
+            }
+        }
+
+        // 更新全选复选框状态
+        function updateSelectAllState() {
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+            const totalProvinces = electricityPriceData.provinces.length;
+            selectAllCheckbox.checked = selectedProvinces.length === totalProvinces && totalProvinces > 0;
+        }
+
+        // 获取所有省份原始全量数据
+        function getAllProvincesData() {
+            const allData = [];
+            electricityPriceData.provinces.forEach(province => {
+                electricityPriceData.data[province].forEach(item => {
+                    allData.push({ ...item, province });
+                });
+            });
+            return allData.sort((a, b) => a.year - b.year || a.month - b.month);
+        }
+
+        // 恢复原始UI数据表格，无省份列
+        function updateDataTable() {
+            const tableBody = document.getElementById('dataTable');
+            tableBody.innerHTML = '';
+            
+            // 数据编辑区保持单省份逻辑（默认显示第一个选中的省份或所有省份）
+            let displayProvince = selectedProvinces.length > 0 ? selectedProvinces[0] : 'all';
+            let data = displayProvince === 'all' 
+                ? getAllProvincesData() 
+                : (electricityPriceData.data[displayProvince] || []);
+            
+            data.sort((a, b) => a.year - b.year || a.month - b.month);
+
+            data.forEach((item, index) => {
+                const row = document.createElement('tr');
+                const isAllProvince = displayProvince === 'all';
+                row.innerHTML = `
+                    <td class="table-cell">${item.year}</td>
+                    <td class="table-cell">${item.month}月</td>
+                    <td class="table-cell"><input type="number" step="0.0001" value="${item.onlinePrice}" class="input-field py-1 online-price" ${isAllProvince ? 'disabled' : ''}></td>
+                    <td class="table-cell"><input type="number" step="0.0001" value="${item.settlePrice}" class="input-field py-1 settle-price" ${isAllProvince ? 'disabled' : ''}></td>
+                    <td class="table-cell">
+                        ${isAllProvince ? '<span class="text-gray-400">不可操作</span>' : '<button class="text-red-500 delete-btn"><i class="fa fa-trash"></i></button>'}
+                    </td>
+                `;
+
+                if (!isAllProvince) {
+                    row.querySelector('.online-price').addEventListener('change', function() {
+                        item.onlinePrice = parseFloat(this.value);
+                        updateAll();
+                    });
+                    row.querySelector('.settle-price').addEventListener('change', function() {
+                        item.settlePrice = parseFloat(this.value);
+                        updateAll();
+                    });
+                    row.querySelector('.delete-btn').addEventListener('click', function() {
+                        electricityPriceData.data[displayProvince].splice(index, 1);
+                        updateAll();
+                    });
+                }
+
+                tableBody.appendChild(row);
+            });
+
+            // 数据编辑区按钮状态
+            const editProvince = selectedProvinces.length > 0 ? selectedProvinces[0] : 'all';
+            document.getElementById('addDataBtn').disabled = editProvince === 'all';
+            document.getElementById('addDataBtn').classList.toggle('opacity-50', editProvince === 'all');
+        }
+
+        // 初始化图表
+        function initCharts() {
+            Chart.register(ChartDataLabels);
+            const trendCtx = document.getElementById('trendChart').getContext('2d');
+            trendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        title: { display: true, text: '电价趋势' },
+                        datalabels: { formatter: v => v ? v.toFixed(4) : '' }
+                    },
+                    scales: { y: { title: { text: '电价 (元/kWh)' } } }
+                }
+            });
+            const comparisonCtx = document.getElementById('comparisonChart').getContext('2d');
+            comparisonChart = new Chart(comparisonCtx, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        title: { display: true, text: '同比变化率' },
+                        datalabels: { 
+                            // ========== 新增：数据标签显示为百分比，保留两位小数 ==========
+                            formatter: v => v !== null && v !== undefined ? v.toFixed(2) + '%' : '' 
+                        }
+                    },
+                    scales: { 
+                        y: { 
+                            title: { text: '变化率 (%)' },
+                            // ========== 新增：Y轴刻度显示为百分比，保留两位小数 ==========
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(2) + '%';
+                                }
+                            }
+                        } 
+                    }
+                }
+            });
+            updateCharts();
+        }
+
+        // 定义省份颜色数组
+        const provinceColors = ['#3b82f6', '#10b981', '#ef4444', '#f59e0b', '#6366f1', '#8b5cf6', '#ec4890', '#14b8a6', '#f97316', '#a855f7', '#06b6d4', '#84cc16'];
+
+        // 更新图表（支持多选省份）
+        function updateCharts() {
+            const timeRange = document.getElementById('trendTimeRange').value;
+            const priceKey = currentPriceType === 'online' ? 'onlinePrice' : 'settlePrice';
+            const priceName = currentPriceType === 'online' ? '上网电价' : '客户结算电价';
+
+            // 获取所有时间点
+            const allTimePoints = new Set();
+            selectedProvinces.forEach(province => {
+                if (electricityPriceData.data[province]) {
+                    electricityPriceData.data[province].forEach(item => {
+                        allTimePoints.add(`${item.year}年${item.month}月`);
+                    });
+                }
+            });
+
+            const sortedTimePoints = Array.from(allTimePoints).sort((a, b) => {
+                const yearA = parseInt(a.slice(0, 4));
+                const monthA = parseInt(a.slice(5, -1));
+                const yearB = parseInt(b.slice(0, 4));
+                const monthB = parseInt(b.slice(5, -1));
+                return yearA - yearB || monthA - monthB;
+            });
+
+            const datasets = [];
+            selectedProvinces.forEach((province, index) => {
+                if (!electricityPriceData.data[province]) return;
+                
+                const provinceData = electricityPriceData.data[province].sort((a, b) => a.year - b.year || a.month - b.month);
+                const dataMap = {};
+                provinceData.forEach(item => {
+                    dataMap[`${item.year}年${item.month}月`] = item[priceKey];
+                });
+
+                const dataValues = sortedTimePoints.map(timePoint => dataMap[timePoint] || null);
+
+                datasets.push({
+                    label: `${province} - ${priceName}`,
+                    data: dataValues,
+                    borderColor: provinceColors[index % provinceColors.length],
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    tension: 0.2,
+                    fill: false,
+                    pointRadius: 3,
+                    pointHoverRadius: 5
+                });
+            });
+
+            trendChart.data.labels = sortedTimePoints;
+            trendChart.data.datasets = datasets;
+            trendChart.update();
+            updateComparisonChart();
+        }
+
+        function updateComparisonChart() {
+            const priceKey = currentPriceType === 'online' ? 'onlinePrice' : 'settlePrice';
+            const month = document.getElementById('monthSelector').value;
+            
+            const datasets = [];
+            selectedProvinces.forEach((province, index) => {
+                if (!electricityPriceData.data[province]) return;
+                
+                const data = electricityPriceData.data[province];
+                const filtered = month === 'all' ? data : data.filter(i => i.month == month);
+                
+                const years = [...new Set(filtered.map(i=>i.year))].sort();
+                if (years.length < 2) return;
+
+                const base = years[0];
+                const rates = years.slice(1).map(y => {
+                    const b = filtered.find(i => i.year === base)?.[priceKey] || 0;
+                    const c = filtered.find(i => i.year === y)?.[priceKey] || 0;
+                    return b ? ((c-b)/b)*100 : 0;
+                });
+
+                datasets.push({
+                    label: `${province} - 同比变化率`,
+                    data: rates,
+                    borderColor: provinceColors[index % provinceColors.length],
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    tension: 0.2,
+                    fill: false
+                });
+            });
+
+            // 获取所有年份作为标签
+            const allYears = new Set();
+            selectedProvinces.forEach(province => {
+                if (electricityPriceData.data[province]) {
+                    electricityPriceData.data[province].forEach(item => {
+                        allYears.add(item.year);
+                    });
+                }
+            });
+            const sortedYears = Array.from(allYears).sort();
+            const labels = sortedYears.slice(1).map(y => `${y}年`);
+
+            comparisonChart.data.labels = labels;
+            comparisonChart.data.datasets = datasets;
+            comparisonChart.update();
+        }
+
+        // 同比变化率表格
+        function updateChangeRateTable() {
+            const tbody = document.getElementById('changeRateTableBody');
+            tbody.innerHTML = '';
+            
+            const allData = [];
+            selectedProvinces.forEach(province => {
+                if (electricityPriceData.data[province]) {
+                    electricityPriceData.data[province].forEach(item => {
+                        allData.push({ ...item, province });
+                    });
+                }
+            });
+            
+            const priceKey = currentPriceType === 'online' ? 'onlinePrice' : 'settlePrice';
+            const priceTypeName = currentPriceType === 'online' ? '上网电价' : '客户结算电价';
+            const selectedMonth = document.getElementById('monthSelector').value;
+
+            const grouped = {};
+            allData.forEach(item => {
+                const key = `${item.province}-${item.month}`;
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(item);
+            });
+
+            Object.values(grouped).forEach(items => {
+                items.sort((a,b) => a.year - b.year);
+                items.forEach((item, idx) => {
+                    if (idx === 0) return;
+                    if (selectedMonth !== 'all' && item.month != selectedMonth) return;
+
+                    const lastYearItem = items[idx-1];
+                    const currentPrice = item[priceKey];
+                    const lastPrice = lastYearItem[priceKey];
+                    const changeRate = lastPrice ? ((currentPrice - lastPrice) / lastPrice * 100).toFixed(2) : '-';
+
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="table-cell">${item.province}</td>
+                        <td class="table-cell">${item.year}</td>
+                        <td class="table-cell">${item.month}月</td>
+                        <td class="table-cell">${priceTypeName}</td>
+                        <td class="table-cell">${currentPrice.toFixed(4)}</td>
+                        <td class="table-cell">${lastPrice.toFixed(4)}</td>
+                        <td class="table-cell ${changeRate > 0 ? 'text-green-600' : changeRate < 0 ? 'text-red-600' : 'text-gray-600'}">
+                            ${changeRate}%
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            });
+        }
+
+        // ========== 事件绑定函数 ==========
+        function bindEvents() {
+            // 电价类型选择器
+            document.getElementById('priceTypeSelector').addEventListener('change', function() {
+                currentPriceType = this.value;
+                updateAll();
+            });
+
+            // 折叠按钮
+            document.getElementById('toggleCollapseBtn').addEventListener('click', function() {
+                const content = document.getElementById('collapseContent');
+                content.classList.toggle('collapse-hidden');
+                this.querySelector('i').classList.toggle('fa-chevron-up');
+                this.querySelector('i').classList.toggle('fa-chevron-down');
+            });
+
+            // 导入模态框事件
+            document.getElementById('importDataBtn').addEventListener('click', function(e) {
+                e.stopPropagation();
+                console.log('点击导入按钮');
+                const modal = document.getElementById('importModal');
+                modal.classList.remove('hidden');
+                // 重置表单
+                document.getElementById('excelFile').value = '';
+                document.getElementById('fileInfo').textContent = '';
+                document.getElementById('importTextArea').value = '';
+                importedExcelData = [];
+            });
+
+            document.getElementById('closeImportModal').addEventListener('click', function() {
+                document.getElementById('importModal').classList.add('hidden');
+            });
+
+            document.getElementById('cancelImport').addEventListener('click', function() {
+                document.getElementById('importModal').classList.add('hidden');
+            });
+
+            // 添加省份模态框
+            document.getElementById('addProvinceBtn').addEventListener('click', function() {
+                document.getElementById('addProvinceModal').classList.remove('hidden');
+                document.getElementById('newProvinceName').value = '';
+            });
+
+            document.getElementById('closeProvinceModal').addEventListener('click', function() {
+                document.getElementById('addProvinceModal').classList.add('hidden');
+            });
+
+            document.getElementById('cancelAddProvince').addEventListener('click', function() {
+                document.getElementById('addProvinceModal').classList.add('hidden');
+            });
+
+            document.getElementById('confirmAddProvince').addEventListener('click', function() {
+                const provinceName = document.getElementById('newProvinceName').value.trim();
+                if (!provinceName) {
+                    alert('请输入省份名称');
+                    return;
+                }
+                if (electricityPriceData.provinces.includes(provinceName)) {
+                    alert('该省份已存在');
+                    return;
+                }
+                electricityPriceData.provinces.push(provinceName);
+                electricityPriceData.data[provinceName] = [];
+                selectedProvinces.push(provinceName); // 新省份默认选中
+                initProvinceSelector();
+                saveDataToLocalStorage();
+                document.getElementById('addProvinceModal').classList.add('hidden');
+                updateAll();
+            });
+
+            // 删除省份按钮
+            document.getElementById('deleteProvinceBtn').addEventListener('click', function() {
+                if (selectedProvinces.length === 0) {
+                    alert('请先选择要删除的省份');
+                    return;
+                }
+                const provinceToDelete = selectedProvinces[0];
+                if (confirm(`确定要删除${provinceToDelete}的数据吗？`)) {
+                    const index = electricityPriceData.provinces.indexOf(provinceToDelete);
+                    if (index > -1) {
+                        electricityPriceData.provinces.splice(index, 1);
+                        delete electricityPriceData.data[provinceToDelete];
+                        selectedProvinces = selectedProvinces.filter(p => p !== provinceToDelete);
+                        initProvinceSelector();
+                        saveDataToLocalStorage();
+                        updateAll();
+                    }
+                }
+            });
+
+            // 添加数据行模态框
+            document.getElementById('addDataBtn').addEventListener('click', function() {
+                if (selectedProvinces.length === 0) {
+                    alert('请先选择省份');
+                    return;
+                }
+                document.getElementById('addDataModal').classList.remove('hidden');
+                document.getElementById('newDataYear').value = new Date().getFullYear();
+                document.getElementById('newDataMonth').value = new Date().getMonth() + 1;
+                document.getElementById('newOnlinePrice').value = '';
+                document.getElementById('newSettlePrice').value = '';
+            });
+
+            document.getElementById('closeDataModal').addEventListener('click', function() {
+                document.getElementById('addDataModal').classList.add('hidden');
+            });
+
+            document.getElementById('cancelAddData').addEventListener('click', function() {
+                document.getElementById('addDataModal').classList.add('hidden');
+            });
+
+            document.getElementById('confirmAddData').addEventListener('click', function() {
+                if (selectedProvinces.length === 0) {
+                    alert('请先选择省份');
+                    return;
+                }
+                const targetProvince = selectedProvinces[0];
+                const year = parseInt(document.getElementById('newDataYear').value);
+                const month = parseInt(document.getElementById('newDataMonth').value);
+                const onlinePrice = parseFloat(document.getElementById('newOnlinePrice').value) || 0;
+                const settlePrice = parseFloat(document.getElementById('newSettlePrice').value) || 0;
+
+                if (isNaN(year) || isNaN(month) || year < 2000 || year > 2100) {
+                    alert('请输入有效的年份');
+                    return;
+                }
+
+                electricityPriceData.data[targetProvince].push({
+                    year,
+                    month,
+                    onlinePrice,
+                    settlePrice
+                });
+
+                saveDataToLocalStorage();
+                document.getElementById('addDataModal').classList.add('hidden');
+                updateAll();
+            });
+
+            // 确认导入按钮
+            document.getElementById('confirmImport').addEventListener('click', function() {
+                // 优先使用Excel导入的数据
+                if (importedExcelData.length > 0) {
+                    importedExcelData.forEach(item => {
+                        const { province, year, month, onlinePrice, settlePrice } = item;
+                        // 如果省份不存在则添加
+                        if (!electricityPriceData.provinces.includes(province)) {
+                            electricityPriceData.provinces.push(province);
+                            electricityPriceData.data[province] = [];
+                            selectedProvinces.push(province); // 新省份默认选中
+                        }
+                        // 检查是否已有相同年月的数据
+                        const existingIndex = electricityPriceData.data[province].findIndex(i => i.year === year && i.month === month);
+                        if (existingIndex > -1) {
+                            // 更新已有数据
+                            electricityPriceData.data[province][existingIndex] = { year, month, onlinePrice, settlePrice };
+                        } else {
+                            // 添加新数据
+                            electricityPriceData.data[province].push({ year, month, onlinePrice, settlePrice });
+                        }
+                    });
+                } else {
+                    // 处理文本框中的CSV数据
+                    const csvText = document.getElementById('importTextArea').value.trim();
+                    if (csvText) {
+                        const lines = csvText.split('\n');
+                        lines.forEach((line, index) => {
+                            if (index === 0 && line.includes('省份,年份,月份')) return; // 跳过表头
+                            const parts = line.split(',').map(p => p.trim());
+                            if (parts.length >= 5) {
+                                const province = parts[0];
+                                const year = parseInt(parts[1]);
+                                const month = parseInt(parts[2]);
+                                const onlinePrice = parseFloat(parts[3]) || 0;
+                                const settlePrice = parseFloat(parts[4]) || 0;
+
+                                if (!electricityPriceData.provinces.includes(province)) {
+                                    electricityPriceData.provinces.push(province);
+                                    electricityPriceData.data[province] = [];
+                                    selectedProvinces.push(province); // 新省份默认选中
+                                }
+
+                                const existingIndex = electricityPriceData.data[province].findIndex(i => i.year === year && i.month === month);
+                                if (existingIndex > -1) {
+                                    electricityPriceData.data[province][existingIndex] = { year, month, onlinePrice, settlePrice };
+                                } else {
+                                    electricityPriceData.data[province].push({ year, month, onlinePrice, settlePrice });
+                                }
+                            }
+                        });
+                    }
+                }
+
+                initProvinceSelector();
+                saveDataToLocalStorage();
+                document.getElementById('importModal').classList.add('hidden');
+                updateAll();
+                alert('数据导入成功！');
+            });
+
+            // 导出数据按钮
+            document.getElementById('exportDataBtn').addEventListener('click', function() {
+                const allData = getAllProvincesData();
+                if (allData.length === 0) {
+                    alert('暂无数据可导出');
+                    return;
+                }
+
+                // 构建CSV数据
+                let csvContent = '省份,年份,月份,上网电价,客户结算电价\n';
+                allData.forEach(item => {
+                    csvContent += `${item.province},${item.year},${item.month},${item.onlinePrice.toFixed(4)},${item.settlePrice.toFixed(4)}\n`;
+                });
+
+                // 创建下载链接
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.setAttribute('href', url);
+                link.setAttribute('download', `光伏电价数据_${new Date().getTime()}.csv`);
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+
+            // 智能填充模态框
+            document.getElementById('autoFillBtn').addEventListener('click', function() {
+                if (selectedProvinces.length === 0) {
+                    alert('请先选择具体省份');
+                    return;
+                }
+                document.getElementById('autoFillModal').classList.remove('hidden');
+                const currentYear = new Date().getFullYear();
+                document.getElementById('fillStartYear').value = currentYear;
+                document.getElementById('fillEndYear').value = currentYear + 2;
+                document.getElementById('fillGrowthRate').value = -2;
+            });
+
+            document.getElementById('closeAutoFillModal').addEventListener('click', function() {
+                document.getElementById('autoFillModal').classList.add('hidden');
+            });
+
+            document.getElementById('cancelAutoFill').addEventListener('click', function() {
+                document.getElementById('autoFillModal').classList.add('hidden');
+            });
+
+            document.getElementById('confirmAutoFill').addEventListener('click', function() {
+                if (selectedProvinces.length === 0) {
+                    alert('请先选择具体省份');
+                    return;
+                }
+                const targetProvince = selectedProvinces[0];
+                const startYear = parseInt(document.getElementById('fillStartYear').value);
+                const endYear = parseInt(document.getElementById('fillEndYear').value);
+                const growthRate = parseFloat(document.getElementById('fillGrowthRate').value) / 100;
+
+                if (isNaN(startYear) || isNaN(endYear) || isNaN(growthRate) || startYear > endYear) {
+                    alert('请输入有效的填充参数');
+                    return;
+                }
+
+                // 清空现有数据
+                electricityPriceData.data[targetProvince] = [];
+
+                // 生成填充数据
+                let basePrice = 0.4; // 基础电价
+                for (let year = startYear; year <= endYear; year++) {
+                    for (let month = 1; month <= 12; month++) {
+                        const onlinePrice = basePrice * Math.pow(1 + growthRate, year - startYear);
+                        const settlePrice = onlinePrice * 1.3; // 结算电价为上网电价的1.3倍
+                        electricityPriceData.data[targetProvince].push({
+                            year,
+                            month,
+                            onlinePrice: parseFloat(onlinePrice.toFixed(4)),
+                            settlePrice: parseFloat(settlePrice.toFixed(4))
+                        });
+                    }
+                }
+
+                saveDataToLocalStorage();
+                document.getElementById('autoFillModal').classList.add('hidden');
+                updateAll();
+                alert('智能填充完成！');
+            });
+
+            // 分享数据模态框
+            document.getElementById('shareDataBtn').addEventListener('click', function() {
+                const allData = getAllProvincesData();
+                if (allData.length === 0) {
+                    alert('暂无数据可分享');
+                    return;
+                }
+
+                // 将数据转换为Base64编码的JSON
+                const dataStr = JSON.stringify(electricityPriceData);
+                const base64Data = btoa(unescape(encodeURIComponent(dataStr)));
+                const shareLink = `${window.location.origin}${window.location.pathname}?data=${base64Data}`;
+
+                document.getElementById('shareLink').value = shareLink;
+                document.getElementById('shareModal').classList.remove('hidden');
+            });
+
+            document.getElementById('closeShareModal').addEventListener('click', function() {
+                document.getElementById('shareModal').classList.add('hidden');
+            });
+
+            document.getElementById('closeShareBtn').addEventListener('click', function() {
+                document.getElementById('shareModal').classList.add('hidden');
+            });
+
+            document.getElementById('copyLinkBtn').addEventListener('click', function() {
+                const shareLinkInput = document.getElementById('shareLink');
+                shareLinkInput.select();
+                document.execCommand('copy');
+                alert('链接已复制到剪贴板！');
+            });
+
+            // Y轴范围控制
+            document.getElementById('applyYAxisBtn').addEventListener('click', function() {
+                const yMin = parseFloat(document.getElementById('yMinInput').value);
+                const yMax = parseFloat(document.getElementById('yMaxInput').value);
+                if (!isNaN(yMin) && !isNaN(yMax) && yMin < yMax) {
+                    trendChart.options.scales.y.min = yMin;
+                    trendChart.options.scales.y.max = yMax;
+                    trendChart.update();
+                } else {
+                    alert('请输入有效的Y轴范围（最小值 < 最大值）');
+                }
+            });
+
+            document.getElementById('resetYAxisBtn').addEventListener('click', function() {
+                delete trendChart.options.scales.y.min;
+                delete trendChart.options.scales.y.max;
+                document.getElementById('yMinInput').value = '';
+                document.getElementById('yMaxInput').value = '';
+                trendChart.update();
+            });
+
+            // 时间范围和月份选择器事件
+            document.getElementById('trendTimeRange').addEventListener('change', updateCharts);
+            document.getElementById('monthSelector').addEventListener('change', function() {
+                updateComparisonChart();
+                updateChangeRateTable();
+            });
+        }
+
+        // ========== 增强容错的Excel上传解析逻辑 ==========
+        function bindExcelUploadEvent() {
+            const excelFileInput = document.getElementById('excelFile');
+            excelFileInput.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                // 显示文件名
+                document.getElementById('fileInfo').textContent = `已选择文件：${file.name}`;
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        
+                        console.log('Excel Sheet列表:', workbook.SheetNames); // 调试日志
+                        // 存储解析后的数据
+                        importedExcelData = [];
+                        
+                        // 1. 解析「上网电价」Sheet
+                        const onlineSheetName = '上网电价';
+                        if (workbook.SheetNames.includes(onlineSheetName)) {
+                            parseSheetData(workbook, onlineSheetName, 'online');
+                            console.log('上网电价解析后数据条数:', importedExcelData.length);
+                        } else {
+                            alert('未找到「上网电价」Sheet，请检查文件格式');
+                        }
+
+                        // 2. 解析「客户结算电价」Sheet
+                        const settleSheetName = '客户结算电价';
+                        if (workbook.SheetNames.includes(settleSheetName)) {
+                            parseSheetData(workbook, settleSheetName, 'settle');
+                            console.log('客户结算电价解析后数据条数:', importedExcelData.length);
+                        } else {
+                            alert('未找到「客户结算电价」Sheet，请检查文件格式');
+                        }
+
+                        alert(`成功解析Excel文件，共识别到 ${importedExcelData.length} 条数据`);
+                    } catch (error) {
+                        console.error('Excel解析失败:', error);
+                        alert('Excel文件解析失败，请检查文件格式是否正确');
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        /**
+         * 解析单个Sheet的数据（增强容错版）
+         * @param {Object} workbook - Excel工作簿对象
+         * @param {string} sheetName - Sheet名称
+         * @param {string} priceType - 电价类型（online/settle）
+         */
+        function parseSheetData(workbook, sheetName, priceType) {
+            const worksheet = workbook.Sheets[sheetName];
+            // raw:false 强制转文本，避免格式问题
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
+            
+            // 空数据校验：至少需要有 省份行 + 1行数据
+            if (!jsonData || jsonData.length < 2) {
+                console.warn(`${sheetName} Sheet数据为空或行数不足`);
+                return;
+            }
+
+            // 第一步：提取省份（第一行，B列开始，对应索引1）
+            const provinceRow = jsonData[0]; // 第一行：安徽省、福建省、广东省...
+            const provinces = [];
+            // 遍历第一行，从B列（索引1）开始提取所有非空省份名称（增强容错：过滤空值/空格）
+            for (let colIndex = 1; colIndex < provinceRow.length; colIndex++) {
+                const province = (provinceRow[colIndex] || '').toString().trim();
+                if (province && province !== 'undefined' && province !== 'null') { // 过滤无效值
+                    provinces.push({
+                        name: province,       // 省份名称（如安徽省）
+                        colIndex: colIndex    // 省份对应的列索引（如B列=1，C列=2...）
+                    });
+                }
+            }
+
+            if (provinces.length === 0) {
+                console.warn(`${sheetName} Sheet未识别到任何省份`);
+                return;
+            }
+
+            // 第二步：提取月份和对应电价（从第二行开始，A列是月份，其他列是对应省份的电价）
+            for (let rowIndex = 1; rowIndex < jsonData.length; rowIndex++) {
+                const row = jsonData[rowIndex] || []; // 容错：空行处理
+                const monthText = (row[0] || '').toString().trim(); // A列的月份文本
+                
+                // 增强月份解析兼容性：支持 2025年1月 / 2025年01月 / 2026年1月 等格式
+                const monthMatch = monthText.match(/(\d{4})年(\d{1,2})月/);
+                if (!monthMatch) {
+                    console.warn(`${sheetName} Sheet第${rowIndex+1}行的月份格式不匹配：${monthText}，跳过该行`);
+                    continue;
+                }
+                
+                const year = parseInt(monthMatch[1]);   // 提取年份
+                const month = parseInt(monthMatch[2]);  // 提取月份
+                
+                // 容错：年月无效则跳过
+                if (isNaN(year) || isNaN(month) || year < 2000 || year > 2100 || month < 1 || month > 12) {
+                    console.warn(`${sheetName} Sheet第${rowIndex+1}行的年月无效：${year}年${month}月`);
+                    continue;
+                }
+                
+                // 遍历每个省份，提取对应列的电价（增强容错）
+                provinces.forEach(province => {
+                    // 提取电价数值（容错：空值/文本转数字）
+                    let priceValue = (row[province.colIndex] || 0).toString().trim();
+                    priceValue = parseFloat(priceValue.replace(/,/g, '')) || 0; // 过滤千分位逗号
+                    
+                    // 查找是否已有该省份+年月的记录（避免重复）
+                    const existingItemIndex = importedExcelData.findIndex(item => 
+                        item.province === province.name && 
+                        item.year === year && 
+                        item.month === month
+                    );
+
+                    if (existingItemIndex > -1) {
+                        // 更新已有记录的电价
+                        if (priceType === 'online') {
+                            importedExcelData[existingItemIndex].onlinePrice = priceValue;
+                        } else {
+                            importedExcelData[existingItemIndex].settlePrice = priceValue;
+                        }
+                    } else {
+                        // 新增记录
+                        const newItem = {
+                            province: province.name,
+                            year: year,
+                            month: month,
+                            onlinePrice: priceType === 'online' ? priceValue : 0,
+                            settlePrice: priceType === 'settle' ? priceValue : 0
+                        };
+                        importedExcelData.push(newItem);
+                    }
+                });
+            }
+        }
+
+        // 保存数据到本地存储
+        function saveDataToLocalStorage() {
+            localStorage.setItem('electricityPriceData', JSON.stringify(electricityPriceData));
+        }
+
+        // 从本地存储加载数据
+        function loadDataFromLocalStorage() {
+            const savedData = localStorage.getItem('electricityPriceData');
+            if (savedData) {
+                electricityPriceData = JSON.parse(savedData);
+                // 数据结构兼容
+                if (!electricityPriceData.provinces) electricityPriceData.provinces = [];
+                if (!electricityPriceData.data) electricityPriceData.data = {};
+                // 默认选中所有省份
+                selectedProvinces = [...electricityPriceData.provinces];
+            }
+        }
+
+        // 全量更新
+        function updateAll() {
+            updateDataTable();
+            updateCharts();
+            updateChangeRateTable();
+            saveDataToLocalStorage();
+        }
+    </script>
+</body>
+</html>
